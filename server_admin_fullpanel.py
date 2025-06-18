@@ -4,13 +4,14 @@ import sqlite3
 from datetime import datetime, timedelta
 import csv
 import io
+import os
 
 app = Flask(__name__)
 DB_PATH = "licenses.db"
 
 HTML_PANEL = """
 <h2>🔐 Panel de Licencias</h2>
-<p><a href="/">🔄 Actualizar</a> | <a href="/logs">📜 Ver logs</a> | <a href="/export">📁 Exportar CSV</a></p>
+<p><a href="/">🔄 Actualizar</a> | <a href="/logs">📜 Ver logs</a> | <a href="/export">📁 Exportar CSV</a> | <a href="/usos">📊 Usos</a></p>
 
 <h3>➕ Crear nueva licencia</h3>
 <form method="post" action="/add">
@@ -55,17 +56,6 @@ HTML_PANEL = """
 </table>
 """
 
-HTML_LOGS = """
-<h2>📜 Registros de uso</h2>
-<p><a href="/">⬅️ Volver al panel</a></p>
-<table border=1 cellpadding=6>
-<tr><th>Fecha</th><th>Clave</th><th>HWID</th><th>Estado</th></tr>
-{% for log in logs %}
-<tr><td>{{ log[3] }}</td><td>{{ log[1] }}</td><td>{{ log[2] }}</td><td>{{ log[4] }}</td></tr>
-{% endfor %}
-</table>
-"""
-
 @app.route("/")
 def index():
     buscar = request.args.get("buscar", "")
@@ -86,7 +76,6 @@ def add():
     hwid = request.form["hwid"]
     duracion = request.form["duracion"]
     expires = "2099-12-31" if duracion == "infinito" else (datetime.now() + timedelta(days=int(duracion))).strftime("%Y-%m-%d")
-
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO licenses (key, hwid, expires) VALUES (?, ?, ?)", 
@@ -111,7 +100,7 @@ def logs():
     cursor.execute("SELECT * FROM logs ORDER BY fecha DESC")
     logs = cursor.fetchall()
     conn.close()
-    return render_template_string(HTML_LOGS, logs=logs)
+    return render_template_string("<h2>📜 Registros</h2><p><a href='/'>⬅️ Volver</a></p><table border=1><tr><th>ID</th><th>Clave</th><th>HWID</th><th>Fecha</th><th>Estado</th></tr>{% for log in logs %}<tr><td>{{ log[0] }}</td><td>{{ log[1] }}</td><td>{{ log[2] }}</td><td>{{ log[3] }}</td><td>{{ log[4] }}</td></tr>{% endfor %}</table>", logs=logs)
 
 @app.route("/export")
 def export():
@@ -128,77 +117,4 @@ def export():
     return send_file(io.BytesIO(output.getvalue().encode()), mimetype="text/csv", as_attachment=True, download_name="licencias.csv")
 
 if __name__ == "__main__":
-    app.run(debug=True)
-
-
-
-@app.route("/usos")
-def usos():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM hwid_bloqueados")
-    hwid_bloqueados = set([row[0] for row in cursor.fetchall()])
-    cursor.execute("""
-        SELECT key, hwid, COUNT(*) as usos, MAX(fecha) as ultima_vez 
-        FROM logs 
-        GROUP BY key, hwid 
-        ORDER BY ultima_vez DESC
-    """)
-    resultados = cursor.fetchall()
-    conn.close()
-    html = "<h2>📊 Seguimiento de uso</h2><p><a href='/'>⬅️ Volver al panel</a></p>"
-    html += "<table border=1 cellpadding=6><tr><th>Clave</th><th>HWID</th><th>Usos</th><th>Último uso</th><th>Acción</th></tr>"
-    for r in resultados:
-        if r[1] in hwid_bloqueados:
-            accion = f"<a href='/desbloquear/{r[1]}'>🔓 Desbloquear</a>"
-            fila = f"<tr style='background:#fcc'><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td>{accion}</td></tr>"
-        else:
-            accion = f"<a href='/bloquear/{r[1]}'>⛔ Bloquear</a>"
-            fila = f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td>{accion}</td></tr>"
-        html += fila
-    html += "</table>"
-    return html
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT key, hwid, COUNT(*) as usos, MAX(fecha) as ultima_vez 
-        FROM logs 
-        GROUP BY key, hwid 
-        ORDER BY ultima_vez DESC
-    """)
-    resultados = cursor.fetchall()
-    conn.close()
-    html = "<h2>📊 Seguimiento de uso</h2><p><a href='/'>⬅️ Volver al panel</a></p>"
-    html += "<table border=1 cellpadding=6><tr><th>Clave</th><th>HWID</th><th>Usos</th><th>Último uso</th></tr>"
-    for r in resultados:
-        html += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>"
-    html += "</table>"
-    return html
-
-
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
-cursor.execute("CREATE TABLE IF NOT EXISTS hwid_bloqueados (hwid TEXT PRIMARY KEY)")
-conn.commit()
-conn.close()
-
-
-@app.route("/bloquear/<hwid>")
-def bloquear_hwid(hwid):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO hwid_bloqueados (hwid) VALUES (?)", (hwid,))
-    conn.commit()
-    conn.close()
-    return redirect("/usos")
-
-@app.route("/desbloquear/<hwid>")
-def desbloquear_hwid(hwid):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM hwid_bloqueados WHERE hwid = ?", (hwid,))
-    conn.commit()
-    conn.close()
-    return redirect("/usos")
-
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
