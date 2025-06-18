@@ -8,7 +8,33 @@ import os
 app = Flask(__name__)
 DB_PATH = "licenses.db"
 
-HTML_PANEL = """<h2>🔐 Panel de Licencias</h2>
+# 🔧 Inicialización automática de la base de datos
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS licenses (
+            key TEXT PRIMARY KEY,
+            hwid TEXT,
+            expires TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT,
+            hwid TEXT,
+            fecha TEXT,
+            estado TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+HTML_PANEL = """
+<h2>🔐 Panel de Licencias</h2>
 <p><a href="/">🔄 Actualizar</a> | <a href="/logs">📜 Ver logs</a> | <a href="/export">📁 Exportar CSV</a> | <a href="/usos">📊 Usos</a></p>
 
 <h3>➕ Crear nueva licencia</h3>
@@ -51,7 +77,8 @@ HTML_PANEL = """<h2>🔐 Panel de Licencias</h2>
   <td><a href="/delete/{{ lic[0] }}">❌ Eliminar</a></td>
 </tr>
 {% endfor %}
-</table>"""
+</table>
+"""
 
 @app.route("/")
 def index():
